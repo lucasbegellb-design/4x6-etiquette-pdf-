@@ -256,5 +256,62 @@ with open(OUT / "colissimo_rotate90.pdf", "wb") as fh:
 expected["colissimo_rotate90.pdf"] = {"pages": 1, "customs": False,
                                       "boxes": {"0": {"box": [54, 160, 344, 508], "source": "rect"}}}
 
+# 8. Données dans des champs de formulaire / des annotations (et non dans le dessin de la page).
+#    embedPage() ne reprend que le dessin : l'app doit incruster ces données avant le découpage.
+from pypdf.generic import ArrayObject, BooleanObject, DictionaryObject, FloatObject, NameObject, NumberObject, StreamObject, TextStringObject
+
+
+def cadre_donnees(c):
+    c.setLineWidth(1)
+    c.rect(54, 160, 290, 348)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(62, 486, "colissimo")
+    c.setFont("Helvetica", 8)
+    c.drawString(62, 440, "DESTINATAIRE :")
+
+
+DONNEES = [(62, 410, "Jeanne Martin", 12), (62, 385, "5 avenue Fictive 69003 LYON", 12), (62, 300, "6A 123 456 789 0", 16)]
+attendu_donnees = {"pages": 1, "customs": False, "boxes": {"0": {"box": [54, 160, 344, 508], "source": "rect"}}}
+
+# 8a. Champs AcroForm remplis, avec apparences
+c = canvas.Canvas(str(OUT / "champs_formulaire.pdf"), pagesize=A4L)
+cadre_donnees(c)
+for i, (x, y, txt, size) in enumerate(DONNEES):
+    c.acroForm.textfield(name=f"champ{i}", value=txt, x=x, y=y, width=260, height=size + 8, borderWidth=0, fontSize=size)
+c.save()
+expected["champs_formulaire.pdf"] = attendu_donnees
+
+# 8b. Mêmes champs SANS apparence (NeedAppearances), comme le font certains générateurs
+w = PdfWriter(clone_from=PdfReader(str(OUT / "champs_formulaire.pdf")))
+for a in w.pages[0]["/Annots"]:
+    a.get_object().pop("/AP", None)
+w._root_object["/AcroForm"][NameObject("/NeedAppearances")] = BooleanObject(True)
+w.write(str(OUT / "champs_sans_apparence.pdf"))
+expected["champs_sans_apparence.pdf"] = attendu_donnees
+
+# 8c. Annotations « texte libre » et « tampon » avec apparence (ex. étiquette complétée dans un lecteur PDF)
+c = canvas.Canvas(str(OUT / "annotations.pdf"), pagesize=A4L)
+cadre_donnees(c)
+c.save()
+w = PdfWriter(clone_from=PdfReader(str(OUT / "annotations.pdf")))
+fref = w._add_object(DictionaryObject({NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"),
+                                       NameObject("/BaseFont"): NameObject("/Helvetica")}))
+annots = ArrayObject()
+for i, (x, y, txt, size) in enumerate(DONNEES):
+    wd, ht = 260, size + 8
+    ap = StreamObject()
+    ap._data = f"BT /Helv {size} Tf 0 g 2 4 Td ({txt}) Tj ET".encode()
+    ap.update({NameObject("/Type"): NameObject("/XObject"), NameObject("/Subtype"): NameObject("/Form"),
+               NameObject("/BBox"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(wd), FloatObject(ht)]),
+               NameObject("/Resources"): DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/Helv"): fref})})})
+    annots.append(w._add_object(DictionaryObject({
+        NameObject("/Type"): NameObject("/Annot"), NameObject("/Subtype"): NameObject("/Stamp" if i == 2 else "/FreeText"),
+        NameObject("/Rect"): ArrayObject([FloatObject(x), FloatObject(y), FloatObject(x + wd), FloatObject(y + ht)]),
+        NameObject("/F"): NumberObject(4), NameObject("/Contents"): TextStringObject(txt),
+        NameObject("/DA"): TextStringObject(f"/Helv {size} Tf 0 g"), NameObject("/AP"): DictionaryObject({NameObject("/N"): w._add_object(ap)})})))
+w.pages[0][NameObject("/Annots")] = annots
+w.write(str(OUT / "annotations.pdf"))
+expected["annotations.pdf"] = attendu_donnees
+
 (OUT / "attendu.json").write_text(json.dumps(expected, indent=2, ensure_ascii=False))
 print("PDF générés dans", OUT)

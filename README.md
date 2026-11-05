@@ -33,6 +33,8 @@ contrôle d'intégrité SRI) ; la page interdit toute autre connexion (Content-S
 - Le PDF produit reste **vectoriel** : la zone est découpée avec `embedPage(page, boundingBox)` de pdf-lib,
   puis posée avec `drawPage` (marge 4 pt, centrée, proportions conservées, rotation de 90° horaire si la
   zone est plus large que haute). Rien n'est rasterisé.
+- Les données ajoutées par-dessus la page (champs de formulaire remplis, annotations « texte libre »
+  ou « tampon ») sont incrustées dans la page avant le découpage, pour apparaître sur l'étiquette 4×6.
 - Détection : rendu de la page avec pdf.js, recherche du plus grand rectangle à trait **plein**
   (les pointillés « Collez ici le ruban adhésif » sont ignorés), sinon boîte englobante du contenu,
   sinon préréglage selon le format de page.

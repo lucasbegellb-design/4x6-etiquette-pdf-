@@ -117,7 +117,13 @@ async function main() {
       const [d] = await Promise.all([page.waitForEvent('download'), card.getByRole('button', { name: 'Télécharger' }).click()]);
       await d.saveAs(path.join(OUT_DIR, d.suggestedFilename()));
     }
-    const [dlAll] = await Promise.all([page.waitForEvent('download'), page.locator('#all-dl').click()]);
+    const [dlAll] = await Promise.all([
+      page.waitForEvent('download').catch(async (e) => {
+        const msg = await page.locator('#global-msg').textContent().catch(() => '');
+        const st = await page.evaluate(() => ({ busy: document.getElementById('all-dl').getAttribute('aria-busy'), disabled: document.getElementById('all-dl').disabled }));
+        throw new Error(`« Tout télécharger » sans téléchargement : ${msg} ${JSON.stringify(st)}`);
+      }),
+      page.locator('#all-dl').click()]);
     await dlAll.saveAs(path.join(OUT_DIR, dlAll.suggestedFilename()));
     ok(true, `« Tout télécharger » : ${dlAll.suggestedFilename()}`);
 

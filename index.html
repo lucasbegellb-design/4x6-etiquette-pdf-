@@ -503,22 +503,104 @@
   // Génération du PDF 4×6 (vectoriel : embedPage + drawPage, jamais de rasterisation)
   // ---------------------------------------------------------------------------
   async function loadLibDoc(bytes) {
-    const { PDFDocument, PDFName } = PDFLib;
+    const { PDFDocument } = PDFLib;
     const opts = { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false };
     let doc;
     try { doc = await PDFDocument.load(bytes, opts); }
     catch (e) { throw new UserError('Ce PDF ne peut pas être lu par pdf-lib (fichier endommagé ou format non pris en charge).'); }
     if (doc.isEncrypted) throw new UserError('Ce PDF est protégé (chiffré) : il ne peut pas être converti en vectoriel.');
-    // Champs de formulaire remplis (ex. CN23 à compléter) : on les « aplatit » pour qu'ils soient imprimés.
-    if (doc.catalog.lookup(PDFName.of('AcroForm'))) {
-      try {
-        const form = doc.getForm();
-        if (form.getFields().length) form.flatten({ updateFieldAppearances: false });
-      } catch (e) {
-        doc = await PDFDocument.load(bytes, opts);
-      }
+    try {
+      await incrusterAnnotations(doc);
+    } catch (e) {
+      doc = await PDFDocument.load(bytes, opts);   // en dernier recours : PDF d'origine tel quel
     }
     return doc;
+  }
+
+  /**
+   * embedPage() ne reprend que le dessin de la page, pas ses annotations. Or, sur certaines étiquettes,
+   * les données (adresse, n° de suivi…) sont des champs de formulaire ou des annotations (texte libre,
+   * tampon) ajoutées par-dessus la page. On les « incruste » donc dans le contenu de la page :
+   *   1) champs de formulaire remplis sans apparence : pdf-lib génère l'apparence (Helvetica) ;
+   *   2) chaque annotation imprimable ayant une apparence est dessinée à sa place (norme PDF 12.5.5).
+   */
+  const ANNOT_IGNOREES = new Set(['Link', 'Popup', 'Text', 'Sound', 'Movie', 'Screen', 'FileAttachment', '3D', 'RichMedia', 'Redact']);
+  async function incrusterAnnotations(doc) {
+    const { PDFName, PDFDict, PDFArray, PDFNumber, PDFStream, PDFRef, StandardFonts,
+      pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject } = PDFLib;
+    const ctx = doc.context;
+    const num = (o) => { const v = ctx.lookup(o); return v instanceof PDFNumber ? v.asNumber() : NaN; };
+    const nums = (arr, n) => {
+      const a = ctx.lookup(arr);
+      if (!(a instanceof PDFArray) || a.size() < n) return null;
+      const out = a.asArray().slice(0, n).map(num);
+      return out.every(Number.isFinite) ? out : null;
+    };
+
+    if (doc.catalog.lookup(PDFName.of('AcroForm'))) {
+      let fields = [], font = null;
+      try { fields = doc.getForm().getFields(); } catch (e) { fields = []; }
+      for (const field of fields) {
+        try {
+          if (field.needsAppearancesUpdate()) {
+            font = font || doc.embedStandardFont(StandardFonts.Helvetica);
+            field.defaultUpdateAppearances(font);
+          }
+        } catch (e) { /* champ non pris en charge : ignoré */ }
+      }
+      if (font) await doc.flush();   // écrit réellement la police utilisée par les apparences générées
+    }
+
+    for (const page of doc.getPages()) {
+      const annots = ctx.lookup(page.node.get(PDFName.of('Annots')));
+      if (!(annots instanceof PDFArray)) continue;
+      const kept = [], ops = [];
+      for (const raw of annots.asArray()) {
+        let done = false;
+        try {
+          const annot = ctx.lookup(raw);
+          if (!(annot instanceof PDFDict)) throw 0;
+          const st = String(annot.lookup(PDFName.of('Subtype')) || '').replace(/^\//, '');
+          const flags = num(annot.get(PDFName.of('F'))) || 0;
+          if (ANNOT_IGNOREES.has(st) || (flags & 2)) throw 0;          // ignorée ou cachée
+          if (st === 'Widget' && !(flags & 4)) throw 0;                  // champ non imprimable (bouton…)
+          const ap = annot.lookup(PDFName.of('AP'));
+          if (!(ap instanceof PDFDict)) throw 0;
+          let nRaw = ap.get(PDFName.of('N'));
+          let n = ctx.lookup(nRaw);
+          if (n instanceof PDFDict) {                                    // états (case cochée / non cochée)
+            const as = annot.lookup(PDFName.of('AS'));
+            if (!(as instanceof PDFName)) throw 0;
+            nRaw = n.get(as);
+            n = ctx.lookup(nRaw);
+          }
+          if (!(n instanceof PDFStream)) throw 0;
+          const r = nums(annot.get(PDFName.of('Rect')), 4);
+          const bb = nums(n.dict.get(PDFName.of('BBox')), 4);
+          if (!r || !bb) throw 0;
+          const m = nums(n.dict.get(PDFName.of('Matrix')), 6) || [1, 0, 0, 1, 0, 0];
+          // Boîte de l'apparence transformée par sa matrice, puis ajustée au rectangle de l'annotation.
+          const xs = [], ys = [];
+          for (const [x, y] of [[bb[0], bb[1]], [bb[2], bb[1]], [bb[0], bb[3]], [bb[2], bb[3]]]) {
+            xs.push(m[0] * x + m[2] * y + m[4]); ys.push(m[1] * x + m[3] * y + m[5]);
+          }
+          const tx0 = Math.min(...xs), ty0 = Math.min(...ys), tw = Math.max(...xs) - tx0, th = Math.max(...ys) - ty0;
+          const rx0 = Math.min(r[0], r[2]), ry0 = Math.min(r[1], r[3]);
+          const rw = Math.abs(r[2] - r[0]), rh = Math.abs(r[3] - r[1]);
+          if (!(tw > 0 && th > 0 && rw > 0 && rh > 0)) throw 0;
+          const sx = rw / tw, sy = rh / th;
+          const name = page.node.newXObject('Annot', nRaw instanceof PDFRef ? nRaw : ctx.register(n));
+          ops.push(pushGraphicsState(), concatTransformationMatrix(sx, 0, 0, sy, rx0 - tx0 * sx, ry0 - ty0 * sy),
+            drawObject(name), popGraphicsState());
+          done = true;
+        } catch (e) { /* annotation laissée telle quelle */ }
+        if (!done) kept.push(raw);
+      }
+      if (ops.length) {
+        page.pushOperators(...ops);
+        page.node.set(PDFName.of('Annots'), ctx.obj(kept));   // évite un double affichage (copie A4 douane)
+      }
+    }
   }
 
   async function buildPdf(items, title) {

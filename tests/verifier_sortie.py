@@ -63,6 +63,10 @@ EXPECT_TEXT = {
     "etiquette_dhl_MUNBYN_4x6.pdf": ("Hans Muster", 1, "haut-gauche"),
     "etiquette_sans_cadre_MUNBYN_4x6.pdf": ("Paul Durand", 1, None),
     "etiquette_page_vide_MUNBYN_4x6.pdf": (None, 1, None),
+    # données stockées dans des champs de formulaire / annotations : elles doivent être sur l'étiquette
+    "etiquette_champs_formulaire_MUNBYN_4x6.pdf": ("6A 123 456 789 0", 1, None),
+    "etiquette_champs_sans_apparence_MUNBYN_4x6.pdf": ("6A 123 456 789 0", 1, None),
+    "etiquette_annotations_MUNBYN_4x6.pdf": ("6A 123 456 789 0", 1, None),
 }
 
 for name, (text, npages, corner) in EXPECT_TEXT.items():
@@ -74,8 +78,10 @@ for name, (text, npages, corner) in EXPECT_TEXT.items():
     check(sizes == {(288.0, 432.0)}, f"format des pages : {sizes}")
     check(not has_images(r), "aucune image : contenu vectoriel")
     if text:
-        extracted = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True).stdout
-        check(text in extracted, f"texte vectoriel extractible (« {text} »)")
+        res = subprocess.run(["pdftotext", str(pdf), "-"], capture_output=True, text=True)
+        check(text in res.stdout and "Jeanne Martin" in res.stdout if "MUNBYN" in name and text.startswith("6A") else text in res.stdout,
+              f"texte vectoriel extractible (« {text} »)")
+        check("Error" not in res.stderr, f"PDF sans erreur de structure{(' : ' + res.stderr.strip()[:120]) if 'Error' in res.stderr else ''}")
     img = render(pdf, 1, dpi=72)          # 1 px = 1 pt
     bb = dark_bbox(img)
     if bb:
