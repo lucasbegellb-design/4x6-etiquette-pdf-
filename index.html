@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Les fichiers ne quittent jamais le navigateur : seules les requêtes vers le CDN des librairies sont autorisées. -->
+<meta http-equiv="Content-Security-Policy" content="connect-src https://cdn.jsdelivr.net blob: data:; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="Convertit les étiquettes d'expédition PDF (Colissimo, FedEx via Colissimo, UPS, DHL) au format 4×6 pouces pour imprimante thermique MUNBYN. 100 % local, rien n'est envoyé.">
+<meta name="theme-color" content="#1e3a8a">
+<title>Étiquettes PDF → MUNBYN 4×6</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='14' y='4' width='36' height='56' rx='5' fill='%231e3a8a'/%3E%3Crect x='20' y='11' width='24' height='5' rx='1' fill='%23fff'/%3E%3Cpath d='M20 38h2v14h-2zm4 0h1v14h-1zm3 0h3v14h-3zm5 0h1v14h-1zm3 0h2v14h-2zm4 0h3v14h-3z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f3f5fa; --card: #fff; --ink: #0f172a; --muted: #586174; --line: #dde2ec;
+    --pri: #1d4ed8; --pri-dark: #1e3a8a; --pri-soft: #e8efff;
+    --warn-bg: #fff6e0; --warn-line: #f2b01e; --warn-ink: #7a4a00;
+    --err-bg: #fdecec; --err-line: #f4a3a3; --err-ink: #a1121b;
+    --ok-ink: #05603a; --ok-bg: #e7f6ee;
+    --radius: 14px; --shadow: 0 1px 2px rgba(15, 23, 42, .06), 0 4px 14px rgba(15, 23, 42, .06);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  button, input, select { font: inherit; color: inherit; }
+  [hidden] { display: none !important; }
+
+  .top { background: linear-gradient(135deg, var(--pri-dark), var(--pri)); color: #fff; padding: 22px 16px 26px; }
+  .top .inner, main, footer { max-width: 1120px; margin: 0 auto; }
+  .top h1 { margin: 0 0 4px; font-size: clamp(1.35rem, 4.5vw, 1.9rem); letter-spacing: -.01em; }
+  .top p { margin: 0; opacity: .92; }
+  .top .privacy { margin-top: 10px; display: inline-flex; gap: 8px; align-items: center; background: rgba(255, 255, 255, .14); border-radius: 999px; padding: 4px 12px; font-size: .92rem; }
+
+  main { padding: 16px 12px 40px; }
+  .reminder { display: flex; gap: 10px; align-items: flex-start; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink); border-radius: var(--radius); padding: 12px 14px; margin: -30px 0 16px; box-shadow: var(--shadow); position: relative; }
+  .reminder strong { color: #4d2f00; }
+  .reminder .ico { font-size: 1.25rem; line-height: 1.2; }
+
+  .dropzone { background: var(--card); border: 2px dashed #9fb1d9; border-radius: var(--radius); padding: 28px 16px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; box-shadow: var(--shadow); }
+  .dropzone:hover, .dropzone:focus-visible { border-color: var(--pri); outline: none; }
+  .dropzone.over { border-color: var(--pri); background: var(--pri-soft); }
+  .dropzone .big { font-size: 1.15rem; font-weight: 600; margin: 4px 0 12px; }
+  .dropzone .hint { color: var(--muted); font-size: .9rem; margin: 12px 0 0; }
+  .dropzone svg { width: 42px; height: 42px; color: var(--pri); }
+  .dropzone.disabled { opacity: .55; pointer-events: none; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font-weight: 600; cursor: pointer; text-decoration: none; transition: background .15s, border-color .15s, box-shadow .15s; }
+  .btn:hover { border-color: #b8c2d6; background: #f8f9fc; }
+  .btn:focus-visible { outline: 3px solid #93b4ff; outline-offset: 2px; }
+  .btn.primary { background: var(--pri); border-color: var(--pri); color: #fff; }
+  .btn.primary:hover { background: #1a43c0; }
+  .btn.small { min-height: 36px; padding: 6px 12px; font-size: .92rem; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  .btn.ghost:hover { background: #eef1f7; color: var(--ink); }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+  .btn[aria-busy="true"] { cursor: progress; }
+
+  .alert { border-radius: 10px; padding: 10px 12px; margin: 12px 0 0; font-size: .95rem; }
+  .alert.error { background: var(--err-bg); border: 1px solid var(--err-line); color: var(--err-ink); }
+  .alert.warn { background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink); display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+  .alert.warn strong { color: #4d2f00; }
+  .alert.info { background: var(--pri-soft); border: 1px solid #c6d6fb; color: #1e3a8a; }
+
+  .global { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 0; background: var(--card); border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow); }
+  .global .spacer { flex: 1; }
+  .global .count { color: var(--muted); font-size: .92rem; }
+
+  .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); margin: 16px 0 0; padding: 14px; }
+  .card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .card-title { margin: 0; font-size: 1.08rem; word-break: break-all; flex: 1 1 200px; }
+  .card-head > .btn { margin-left: auto; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge { font-size: .78rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #eef1f7; color: #334155; }
+  .badge.douane { background: #fff1d6; color: #7a4a00; }
+  .status { margin: 6px 0 0; color: var(--muted); font-size: .92rem; }
+  .status:empty { display: none; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #c3cde3; border-top-color: var(--pri); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .section-title { font-size: .95rem; margin: 16px 0 8px; color: #334155; }
+  .section-title small { font-weight: 400; color: var(--muted); }
+  .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+  .thumb { border: 2px solid var(--line); border-radius: 10px; padding: 6px; background: #fafbfd; display: flex; flex-direction: column; gap: 6px; }
+  .thumb.selected { border-color: var(--pri); background: var(--pri-soft); }
+  .thumb.included .thumb-check { color: var(--ink); }
+  .thumb-view { position: relative; display: block; width: 100%; padding: 0; border: 0; background: #fff; cursor: pointer; border-radius: 4px; overflow: hidden; box-shadow: 0 0 0 1px #e3e7ef; }
+  .thumb-view canvas { display: block; width: 100%; height: auto; }
+  .thumb-view:focus-visible { outline: 3px solid #93b4ff; outline-offset: 2px; }
+  .mini-crop { position: absolute; border: 2px solid #e11d48; background: rgba(225, 29, 72, .08); pointer-events: none; }
+  .thumb:not(.included) .mini-crop { border-style: dashed; border-color: #94a3b8; background: transparent; }
+  .thumb-foot { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex-wrap: wrap; }
+  .thumb-check { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; font-weight: 600; color: var(--muted); cursor: pointer; min-height: 32px; }
+  .thumb-check input { width: 20px; height: 20px; accent-color: var(--pri); margin: 0; }
+  .tag { font-size: .72rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #e7ecf7; color: #334155; }
+  .tag.douane { background: #fff1d6; color: #7a4a00; }
+
+  .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; margin-top: 16px; align-items: start; }
+  @media (max-width: 860px) { .workspace { grid-template-columns: minmax(0, 1fr); } }
+  .panel { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; min-width: 0; }
+  .panel h3 { margin: 0; font-size: 1rem; }
+  .panel-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
+  .tools select { flex: 1 1 220px; min-width: 0; max-width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: #fff; }
+
+  .stage { position: relative; width: 100%; margin: 0 auto; background: #fff; box-shadow: 0 0 0 1px #d5dbe7; overflow: hidden; user-select: none; -webkit-user-select: none; cursor: crosshair; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .crop { position: absolute; border: 2px solid #e11d48; box-shadow: 0 0 0 9999px rgba(15, 23, 42, .38); cursor: move; touch-action: none; }
+  .crop:focus-visible { outline: 3px solid #93b4ff; outline-offset: 2px; }
+  .stage.dragging .crop { border-color: #f43f5e; }
+  .h { position: absolute; width: 14px; height: 14px; background: #fff; border: 2px solid #e11d48; border-radius: 3px; touch-action: none; }
+  .h::after { content: ""; position: absolute; inset: -12px; }
+  .h[data-h="nw"] { left: -8px; top: -8px; cursor: nwse-resize; }
+  .h[data-h="ne"] { right: -8px; top: -8px; cursor: nesw-resize; }
+  .h[data-h="sw"] { left: -8px; bottom: -8px; cursor: nesw-resize; }
+  .h[data-h="se"] { right: -8px; bottom: -8px; cursor: nwse-resize; }
+  .h[data-h="n"] { left: calc(50% - 7px); top: -8px; cursor: ns-resize; }
+  .h[data-h="s"] { left: calc(50% - 7px); bottom: -8px; cursor: ns-resize; }
+  .h[data-h="w"] { top: calc(50% - 7px); left: -8px; cursor: ew-resize; }
+  .h[data-h="e"] { top: calc(50% - 7px); right: -8px; cursor: ew-resize; }
+  @media (pointer: coarse) {
+    .h { width: 22px; height: 22px; border-radius: 50%; }
+    .h[data-h="nw"], .h[data-h="sw"], .h[data-h="w"] { left: -12px; }
+    .h[data-h="ne"], .h[data-h="se"], .h[data-h="e"] { right: -12px; }
+    .h[data-h="nw"], .h[data-h="ne"], .h[data-h="n"] { top: -12px; }
+    .h[data-h="sw"], .h[data-h="se"], .h[data-h="s"] { bottom: -12px; }
+    .h[data-h="n"], .h[data-h="s"] { left: calc(50% - 11px); }
+    .h[data-h="w"], .h[data-h="e"] { top: calc(50% - 11px); }
+  }
+
+  .coords { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 10px; font-size: .9rem; color: var(--muted); }
+  .coords .grp { display: inline-flex; align-items: center; gap: 4px; }
+  .coords input { width: 5.8em; min-height: 32px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .coords input::-webkit-inner-spin-button, .coords input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .coords input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  .source { margin: 8px 0 0; font-size: .92rem; }
+  .source.ok { color: var(--ok-ink); }
+  .source.warn { color: var(--warn-ink); }
+  .hint { color: var(--muted); font-size: .85rem; margin: 6px 0 0; }
+
+  .label-frame { width: min(100%, 268px); aspect-ratio: 2 / 3; margin: 10px auto 0; background: #fff; box-shadow: 0 0 0 1px #c9d1e1, 0 6px 20px rgba(15, 23, 42, .12); border-radius: 6px; overflow: hidden; position: relative; }
+  .label-frame canvas { display: block; width: 100%; height: 100%; }
+  .preview-info { text-align: center; color: var(--muted); font-size: .88rem; margin: 10px 0 0; }
+  .preview-info.excluded { color: var(--warn-ink); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .actions .out { color: var(--muted); font-size: .9rem; word-break: break-all; flex: 1 1 220px; }
+  .print-note { margin: 10px 0 0; font-size: .9rem; color: var(--warn-ink); }
+  .open-link { font-weight: 600; color: var(--pri); }
+
+  footer { padding: 0 16px 32px; color: var(--muted); font-size: .85rem; }
+  footer p { margin: 4px 0; }
+
+  @media (max-width: 520px) {
+    main { padding: 12px 8px 32px; }
+    .card { padding: 12px 10px; }
+    .actions .btn { flex: 1 1 140px; }
+    .thumbs { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" integrity="sha384-weMABwrltA6jWR8DDe9Jp5blk+tZQh7ugpCsF3JwSA53WZM9/14PjS5LAJNHNjAI" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+</head>
+<body>
+<header class="top">
+  <div class="inner">
+    <h1>Étiquettes PDF → MUNBYN 4×6</h1>
+    <p>Colissimo · FedEx via Colissimo · UPS · DHL → 100 × 150 mm (288 × 432 pt), en vectoriel.</p>
+    <p class="privacy"><span aria-hidden="true">🔒</span> 100 % local : vos PDF ne quittent jamais votre appareil.</p>
+  </div>
+</header>
+
+<main>
+  <div class="reminder" role="note">
+    <span class="ico" aria-hidden="true">🖨️</span>
+    <div><strong>Rappel :</strong> Imprimer en 4×6, échelle 100 % (pas "ajuster à la page")</div>
+  </div>
+
+  <section id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Déposer ou choisir des étiquettes PDF">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6"/><path d="m9 14 3-3 3 3"/></svg>
+    <p class="big">Glissez-déposez vos étiquettes PDF ici</p>
+    <button type="button" id="pick" class="btn primary">Choisir des PDF</button>
+    <p class="hint">Un ou plusieurs fichiers · Colissimo, FedEx via Colissimo, UPS, DHL</p>
+    <input type="file" id="file-input" accept="application/pdf,.pdf" multiple hidden>
+  </section>
+  <div id="lib-error" class="alert error" role="alert" hidden></div>
+
+  <div id="global" class="global" hidden>
+    <button type="button" id="all-dl" class="btn primary">Tout télécharger</button>
+    <button type="button" id="all-print" class="btn">Tout imprimer</button>
+    <span id="all-count" class="count"></span>
+    <span class="spacer"></span>
+    <button type="button" id="all-clear" class="btn ghost small">Tout effacer</button>
+    <div id="global-msg" class="alert" hidden></div>
+  </div>
+
+  <div id="files"></div>
+</main>
+
+<footer>
+  <p>Le PDF généré reste vectoriel : l'étiquette est découpée (sans rasterisation) puis mise à l'échelle sur une page 288 × 432 pt avec 4 pt de marge.</p>
+  <p>Aucune donnée n'est envoyée : le traitement se fait entièrement dans votre navigateur (pdf-lib 1.17.1 et pdf.js 3.11.174).</p>
+</footer>
+
+<script>
+'use strict';
+(() => {
+  // ---------------------------------------------------------------------------
+  // Réglages
+  // ---------------------------------------------------------------------------
+  const OUT_W = 288, OUT_H = 432;          // 4×6 pouces en points PDF
+  const MARGE = 4;                         // marge sur chaque bord (pt)
+  // Rendu de détection à 144 dpi (2 px par pt) plutôt que 72 : à 72 dpi, un trait fin posé sur une
+  // coordonnée entière s'étale sur 2 pixels gris à ~50 % (valeur ≈ 128, à la limite du seuil), et
+  // relever le seuil « boucherait » les trous de 1 pt des pointillés. À 144 dpi, un trou de 1 pt
+  // contient toujours un pixel blanc, et un trait à cheval (≈ 128) passe sous le seuil de 150.
+  const DETECT_SCALE = 2;
+  const SEUIL_TRAIT = 150;                 // pixel « sombre » pour un trait plein
+  const MAX_PIXELS_DETECTION = 8e6;        // plafond pour les très grandes pages (limite des canvas sur iPhone)
+  const SEUIL_CONTENU = 200;               // pixel « sombre » pour la boîte englobante
+  const PAD_DETECTION = 2.5;               // marge ajoutée autour de la zone détectée (pt)
+  const COTE_MIN = 72;                     // côté minimal d'un cadre d'étiquette (pt)
+  const CADRE_MIN = 18;                    // taille minimale d'un cadre ajusté à la main (pt)
+  const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
+  const WORKER_SRI = 'sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2';
+
+  // Préréglages : coordonnées PDF (pt) de la page telle qu'affichée, origine en bas à gauche.
+  const PRESETS = [
+    { id: 'colissimo-courte', label: 'Colissimo France / UE / Royaume-Uni (courte)', format: 'A4-paysage', box: [54, 160, 344, 508] },
+    { id: 'colissimo-haute', label: 'Colissimo / FedEx international (haute)', format: 'A4-paysage', box: [54, 75, 344, 507] },
+    { id: 'cn23', label: 'Déclaration CN23 Colissimo', format: 'A4-portrait', box: [29, 372, 568, 812] },
+    { id: 'ups', label: 'UPS', format: 'A4-portrait', box: [32, 466, 456, 765] },
+    { id: 'dhl', label: 'DHL « Créer une expédition »', format: 'A4-paysage', box: [92, 61, 360, 557] },
+  ];
+  const CARRIERS = [
+    ['Colissimo', /colissimo/i],
+    ['FedEx', /fed\s?ex/i],
+    ['UPS', /\bUPS\b|united parcel/i],
+    ['DHL', /\bDHL\b/i],
+  ];
+  const RE_DOUANE = /d[ée]claration\s+en\s+douane|customs\s+declaration|facture\s+commerciale|commercial\s+invoice|pro\s?-?\s?forma/i;
+  const RE_CN23 = /\bCN\s?2[23]\b/i;
+
+  // ---------------------------------------------------------------------------
+  // Utilitaires
+  // ---------------------------------------------------------------------------
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const dpr = () => Math.min(window.devicePixelRatio || 1, 2.5);
+  const round1 = (v) => Math.round(v * 10) / 10;
+  class UserError extends Error {}
+
+  function el(tag, props, ...children) {
+    const n = document.createElement(tag);
+    if (props) {
+      for (const [k, v] of Object.entries(props)) {
+        if (v == null || v === false) continue;
+        if (k === 'class') n.className = v;
+        else if (k === 'text') n.textContent = v;
+        else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+        else if (k === 'dataset') Object.assign(n.dataset, v);
+        else n.setAttribute(k, v === true ? '' : v);
+      }
+    }
+    for (const c of children.flat()) if (c != null && c !== false) n.append(c);
+    return n;
+  }
+
+  function baseName(name) {
+    const b = name.replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim();
+    return b || 'etiquette';
+  }
+  const outName = (f) => `etiquette_${baseName(f.name)}_MUNBYN_4x6.pdf`;
+
+  function isPdf(bytes) {
+    const head = new TextDecoder('latin1').decode(bytes.subarray(0, 1024));
+    return head.includes('%PDF-');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Librairies (pdf.js : worker chargé avec contrôle d'intégrité SRI)
+  // ---------------------------------------------------------------------------
+  let sharedWorker = null;
+  async function initLibs() {
+    if (!window.PDFLib || !window.pdfjsLib) {
+      throw new UserError('Impossible de charger pdf-lib / pdf.js depuis le CDN. Vérifiez votre connexion puis rechargez la page.');
+    }
+    const res = await fetch(PDFJS_BASE + 'build/pdf.worker.min.js', { integrity: WORKER_SRI, credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (!res.ok) throw new UserError('Impossible de charger le module pdf.js (worker). Rechargez la page.');
+    const code = await res.arrayBuffer();
+    pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    sharedWorker = new pdfjsLib.PDFWorker({ name: 'munbyn-4x6' });
+  }
+  const docParams = (data) => ({
+    data,
+    worker: sharedWorker,
+    cMapUrl: PDFJS_BASE + 'cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: PDFJS_BASE + 'standard_fonts/',
+    isEvalSupported: false,
+  });
+
+  // ---------------------------------------------------------------------------
+  // Géométrie
+  //   « user »  : espace utilisateur PDF (pt), utilisé par pdf-lib (embedPage).
+  //   « vis »   : page telle qu'affichée (pt), origine en HAUT à gauche, y vers le bas.
+  // ---------------------------------------------------------------------------
+  function visToUser(pg, v) {
+    const [ax, ay] = pg.vp1.convertToPdfPoint(v.l, v.t);
+    const [bx, by] = pg.vp1.convertToPdfPoint(v.r, v.b);
+    return { x0: Math.min(ax, bx), y0: Math.min(ay, by), x1: Math.max(ax, bx), y1: Math.max(ay, by) };
+  }
+  function userToVis(pg, u) {
+    const [ax, ay] = pg.vp1.convertToViewportPoint(u.x0, u.y0);
+    const [bx, by] = pg.vp1.convertToViewportPoint(u.x1, u.y1);
+    return { l: Math.min(ax, bx), t: Math.min(ay, by), r: Math.max(ax, bx), b: Math.max(ay, by) };
+  }
+  function clampVis(pg, v) {
+    return { l: clamp(v.l, 0, pg.visW), t: clamp(v.t, 0, pg.visH), r: clamp(v.r, 0, pg.visW), b: clamp(v.b, 0, pg.visH) };
+  }
+  function clampUser(pg, u) {
+    const [vx0, vy0, vx1, vy1] = pg.view;
+    return { x0: clamp(u.x0, vx0, vx1), y0: clamp(u.y0, vy0, vy1), x1: clamp(u.x1, vx0, vx1), y1: clamp(u.y1, vy0, vy1) };
+  }
+  // Boîte visuelle « origine en bas à gauche » (comme les préréglages) -> vis.
+  const presetToVis = (pg, box) => ({ l: box[0], r: box[2], t: pg.visH - box[3], b: pg.visH - box[1] });
+  const fullPage = (pg) => ({ x0: pg.view[0], y0: pg.view[1], x1: pg.view[2], y1: pg.view[3] });
+
+  function pageFormat(w, h) {
+    const near = (a, b) => Math.abs(a - b) <= 8;
+    if (near(w, 841.89) && near(h, 595.28)) return 'A4-paysage';
+    if (near(w, 595.28) && near(h, 841.89)) return 'A4-portrait';
+    return null;
+  }
+
+  /**
+   * Mise en page 4×6 : marge 4 pt, centrage, proportions conservées.
+   * Si la zone (telle qu'affichée) est plus large que haute : rotation de 90° sens horaire.
+   * Renvoie les paramètres pour page.drawPage() de pdf-lib (rotation anti-horaire = -T).
+   */
+  function layoutFor(crop, pageRotate) {
+    const w = crop.x1 - crop.x0, h = crop.y1 - crop.y0;
+    const r = ((pageRotate % 360) + 360) % 360;
+    const visW = r % 180 ? h : w, visH = r % 180 ? w : h;
+    const extra = visW > visH ? 90 : 0;
+    const T = (r + extra) % 360;               // rotation totale, sens horaire
+    const outW = T % 180 ? h : w, outH = T % 180 ? w : h;
+    const s = Math.min((OUT_W - 2 * MARGE) / outW, (OUT_H - 2 * MARGE) / outH);
+    const ox = (OUT_W - outW * s) / 2, oy = (OUT_H - outH * s) / 2;
+    let x = ox, y = oy;
+    if (T === 90) { x = ox; y = oy + w * s; }
+    else if (T === 180) { x = ox + w * s; y = oy + h * s; }
+    else if (T === 270) { x = ox + h * s; y = oy; }
+    return { x, y, s, T, autoRotated: extra === 90, outW: outW * s, outH: outH * s };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Détection de la zone de l'étiquette
+  // ---------------------------------------------------------------------------
+  /** Regroupe les segments [pos, a, b] (triés par pos) de lignes/colonnes consécutives en traits. */
+  function clusterRuns(runs, tol) {
+    const lines = [];
+    let open = [], next = [], pos = -2;
+    for (const run of runs) {
+      const p = run[0], a = run[1], b = run[2];
+      if (p !== pos) { open = p === pos + 1 ? next : []; next = []; pos = p; }
+      let line = null;
+      for (const l of open) {
+        if (l.p1 === p - 1 && Math.abs(l.a - a) <= tol && Math.abs(l.b - b) <= tol) { line = l; break; }
+      }
+      if (line) { line.p1 = p; if (a < line.a) line.a = a; if (b > line.b) line.b = b; }
+      else { line = { p0: p, p1: p, a, b }; lines.push(line); }
+      next.push(line);
+    }
+    return lines;
+  }
+
+  /**
+   * Analyse une image (ImageData) rendue à `scale` px/pt.
+   * 1) cherche le plus grand rectangle à trait PLEIN (longues séquences continues de pixels < 128 :
+   *    les pointillés ont des trous et sont ignorés) ;
+   * 2) sinon boîte englobante des pixels < 200.
+   * Renvoie { kind: 'rect' | 'bbox' | 'none', l, t, r, b } en pixels.
+   */
+  function detectZone(img, scale) {
+    const W = img.width, H = img.height, d = img.data, N = W * H;
+    const gray = new Uint8Array(N);
+    let bx0 = W, by0 = H, bx1 = -1, by1 = -1;
+    for (let i = 0, j = 0; i < N; i++, j += 4) {
+      const g = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+      gray[i] = g;
+      if (g < SEUIL_CONTENU) {
+        const x = i % W, y = (i - x) / W;
+        if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+        if (y < by0) by0 = y; if (y > by1) by1 = y;
+      }
+    }
+    const minSide = COTE_MIN * scale;
+    const minLen = Math.round(minSide * 0.9);
+    const tol = Math.max(2, Math.round(3 * scale));
+
+    const hRuns = [];
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      let x = 0;
+      while (x < W) {
+        if (gray[row + x] < SEUIL_TRAIT) {
+          const s = x;
+          while (x < W && gray[row + x] < SEUIL_TRAIT) x++;
+          if (x - s >= minLen) hRuns.push([y, s, x - 1]);
+        } else x++;
+      }
+    }
+    const vRuns = [];
+    for (let x = 0; x < W; x++) {
+      let y = 0;
+      while (y < H) {
+        if (gray[y * W + x] < SEUIL_TRAIT) {
+          const s = y;
+          while (y < H && gray[y * W + x] < SEUIL_TRAIT) y++;
+          if (y - s >= minLen) vRuns.push([x, s, y - 1]);
+        } else y++;
+      }
+    }
+    const hLines = clusterRuns(hRuns, tol);   // p = y (épaisseur), a..b = x
+    const vLines = clusterRuns(vRuns, tol);   // p = x (épaisseur), a..b = y
+
+    let best = null, bestArea = 0;
+    const maxArea = 0.9 * W * H;              // au-delà : bordure de page, pas une étiquette
+    for (let i = 0; i < hLines.length; i++) {
+      const top = hLines[i];
+      for (let j = i + 1; j < hLines.length; j++) {
+        const bot = hLines[j];
+        if (bot.p0 - top.p1 < minSide) continue;
+        const ox0 = Math.max(top.a, bot.a), ox1 = Math.min(top.b, bot.b);
+        if (ox1 - ox0 < minSide) continue;
+        let L = null, R = null;
+        for (const v of vLines) {
+          if (v.p0 < ox0 - tol || v.p1 > ox1 + tol) continue;
+          if (v.a > top.p1 + tol || v.b < bot.p0 - tol) continue;
+          if (!L || v.p0 < L.p0) L = v;
+          if (!R || v.p1 > R.p1) R = v;
+        }
+        if (!L || R.p0 - L.p1 < minSide) continue;
+        const rect = { l: L.p0, r: R.p1 + 1, t: top.p0, b: bot.p1 + 1 };
+        const area = (rect.r - rect.l) * (rect.b - rect.t);
+        if (area > bestArea && area <= maxArea) { best = rect; bestArea = area; }
+      }
+    }
+    if (best) return { kind: 'rect', ...best };
+    if (bx1 >= 0) return { kind: 'bbox', l: bx0, t: by0, r: bx1 + 1, b: by1 + 1 };
+    return { kind: 'none' };
+  }
+
+  function choosePreset(pg, f, vis) {
+    const cands = PRESETS.filter((p) => p.format === pg.format);
+    if (!cands.length) return null;
+    const byId = (id) => cands.find((p) => p.id === id);
+    const has = (c) => f.carriers.includes(c);
+    let hinted = null;
+    if (pg.format === 'A4-portrait') {
+      if (pg.isCustoms) hinted = byId('cn23');
+      else if (has('UPS')) hinted = byId('ups');
+    } else if (pg.format === 'A4-paysage') {
+      if (has('DHL') && !has('Colissimo')) hinted = byId('dhl');
+      else if (has('Colissimo') || has('FedEx')) hinted = byId(f.hasCustoms || has('FedEx') ? 'colissimo-haute' : 'colissimo-courte');
+    }
+    if (hinted) return hinted;
+    if (vis) {
+      let best = null, bestIou = 0;
+      for (const p of cands) {
+        const q = presetToVis(pg, p.box);
+        const iw = Math.max(0, Math.min(q.r, vis.r) - Math.max(q.l, vis.l));
+        const ih = Math.max(0, Math.min(q.b, vis.b) - Math.max(q.t, vis.t));
+        const inter = iw * ih;
+        const iou = inter / ((q.r - q.l) * (q.b - q.t) + (vis.r - vis.l) * (vis.b - vis.t) - inter);
+        if (iou > bestIou) { best = p; bestIou = iou; }
+      }
+      if (best) return best;
+    }
+    return cands[0];
+  }
+
+  function autoCrop(pg, f) {
+    const det = pg.det;
+    let vis = null, source = null, presetId = null;
+    if (det.kind === 'rect' || det.kind === 'bbox') {
+      const s = pg.detScale;
+      vis = clampVis(pg, { l: det.l / s - PAD_DETECTION, t: det.t / s - PAD_DETECTION, r: det.r / s + PAD_DETECTION, b: det.b / s + PAD_DETECTION });
+      const w = vis.r - vis.l, h = vis.b - vis.t;
+      // Cohérence : taille minimale ; sur une page A4 paysage, l'étiquette n'occupe jamais toute la page.
+      const coherent = w >= 50 && h >= 50 && !(pg.format === 'A4-paysage' && w * h > 0.55 * pg.visW * pg.visH);
+      source = det.kind === 'rect' || coherent ? det.kind : null;
+    }
+    if (!source) {
+      const preset = choosePreset(pg, f, vis);
+      if (preset) { vis = presetToVis(pg, preset.box); source = 'preset'; presetId = preset.id; }
+      else { vis = { l: 0, t: 0, r: pg.visW, b: pg.visH }; source = 'page'; }
+    }
+    return { box: clampUser(pg, visToUser(pg, clampVis(pg, vis))), source, presetId };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Génération du PDF 4×6 (vectoriel : embedPage + drawPage, jamais de rasterisation)
+  // ---------------------------------------------------------------------------
+  async function loadLibDoc(bytes) {
+    const { PDFDocument, PDFName } = PDFLib;
+    const opts = { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false };
+    let doc;
+    try { doc = await PDFDocument.load(bytes, opts); }
+    catch (e) { throw new UserError('Ce PDF ne peut pas être lu par pdf-lib (fichier endommagé ou format non pris en charge).'); }
+    if (doc.isEncrypted) throw new UserError('Ce PDF est protégé (chiffré) : il ne peut pas être converti en vectoriel.');
+    // Champs de formulaire remplis (ex. CN23 à compléter) : on les « aplatit » pour qu'ils soient imprimés.
+    if (doc.catalog.lookup(PDFName.of('AcroForm'))) {
+      try {
+        const form = doc.getForm();
+        if (form.getFields().length) form.flatten({ updateFieldAppearances: false });
+      } catch (e) {
+        doc = await PDFDocument.load(bytes, opts);
+      }
+    }
+    return doc;
+  }
+
+  async function buildPdf(items, title) {
+    const { PDFDocument, degrees } = PDFLib;
+    const out = await PDFDocument.create();
+    for (const { file, page } of items) {
+      const src = file.libDoc.getPage(page.index);
+      const c = page.crop;
+      const embedded = await out.embedPage(src, { left: c.x0, bottom: c.y0, right: c.x1, top: c.y1 });
+      const L = layoutFor(c, page.rotate);
+      const p = out.addPage([OUT_W, OUT_H]);
+      p.drawPage(embedded, { x: L.x, y: L.y, xScale: L.s, yScale: L.s, rotate: degrees(-L.T) });
+    }
+    out.setTitle(title);
+    out.setCreator('Étiquettes PDF → MUNBYN 4×6');
+    out.setProducer('pdf-lib 1.17.1');
+    return out.save();
+  }
+
+  const checkedItems = (f) => (f.status === 'ready' ? f.pages.filter((p) => p.checked).map((page) => ({ file: f, page })) : []);
+
+  // ---------------------------------------------------------------------------
+  // État
+  // ---------------------------------------------------------------------------
+  const state = { files: [], nextId: 1, queue: Promise.resolve() };
+  const ui = {
+    dropzone: $('#dropzone'), input: $('#file-input'), pick: $('#pick'), files: $('#files'), libError: $('#lib-error'),
+    global: $('#global'), allDl: $('#all-dl'), allPrint: $('#all-print'), allClear: $('#all-clear'), allCount: $('#all-count'), globalMsg: $('#global-msg'),
+  };
+  const libsReady = initLibs();
+  libsReady.catch((e) => {
+    ui.libError.textContent = e instanceof UserError ? e.message : 'Impossible d\'initialiser les librairies PDF : ' + e.message;
+    ui.libError.hidden = false;
+    ui.dropzone.classList.add('disabled');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Chargement des fichiers
+  // ---------------------------------------------------------------------------
+  function addFiles(list) {
+    const files = [...(list || [])];
+    for (const file of files) {
+      const f = createFileEntry(file);
+      state.files.push(f);
+      ui.files.append(f.ui.card);
+      state.queue = state.queue.then(() => processFile(f));
+    }
+    updateGlobal();
+    return state.queue;
+  }
+
+  async function renderPage(page, scale, opts = {}) {
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(vp.width));
+    canvas.height = Math.max(1, Math.floor(vp.height));
+    const ctx = canvas.getContext('2d', { willReadFrequently: !!opts.readback });
+    await page.render({ canvasContext: ctx, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise;
+    return { canvas, ctx };
+  }
+
+  function makeThumb(canvas) {
+    const tw = Math.round(170 * dpr());
+    const th = Math.max(1, Math.round(tw * canvas.height / canvas.width));
+    const t = el('canvas', { width: tw, height: th, 'aria-hidden': 'true' });
+    const c = t.getContext('2d');
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(canvas, 0, 0, tw, th);
+    return t;
+  }
+
+  async function processFile(f) {
+    if (f.removed) return;
+    try {
+      await libsReady;
+    } catch (e) {
+      return setError(f, e);
+    }
+    try {
+      f.status = 'loading';
+      setStatus(f, 'Lecture du fichier…', true);
+      const bytes = new Uint8Array(await f.file.arrayBuffer());
+      if (!isPdf(bytes)) throw new UserError('Ce fichier n\'est pas un PDF.');
+      f.bytes = bytes;
+      try {
+        f.pdfjs = await pdfjsLib.getDocument(docParams(bytes.slice())).promise;
+      } catch (e) {
+        if (e && e.name === 'PasswordException') throw new UserError('Ce PDF est protégé par un mot de passe : impossible de le lire.');
+        throw new UserError('PDF illisible ou endommagé.');
+      }
+      f.libDoc = await loadLibDoc(bytes);
+      const n = f.pdfjs.numPages;
+      for (let i = 0; i < n; i++) {
+        if (f.removed) return;
+        setStatus(f, `Analyse de la page ${i + 1}/${n}…`, true);
+        const page = await f.pdfjs.getPage(i + 1);
+        const vp1 = page.getViewport({ scale: 1 });
+        const pg = {
+          index: i, rotate: page.rotate, view: page.view.slice(), vp1,
+          visW: vp1.width, visH: vp1.height, format: pageFormat(vp1.width, vp1.height),
+          checked: i === 0, choice: 'auto',
+        };
+        const tc = await page.getTextContent();
+        pg.text = tc.items.map((it) => it.str).join(' ');
+        pg.isCustoms = RE_DOUANE.test(pg.text) || (i > 0 && RE_CN23.test(pg.text));
+        pg.detScale = Math.min(DETECT_SCALE, Math.sqrt(MAX_PIXELS_DETECTION / (pg.visW * pg.visH)));
+        const { canvas, ctx } = await renderPage(page, pg.detScale, { readback: true });
+        pg.det = detectZone(ctx.getImageData(0, 0, canvas.width, canvas.height), pg.detScale);
+        pg.thumb = makeThumb(canvas);
+        canvas.width = canvas.height = 0;
+        page.cleanup();
+        f.pages.push(pg);
+      }
+      const allText = f.pages.map((p) => p.text).join(' ');
+      f.carriers = CARRIERS.filter(([, re]) => re.test(allText)).map(([name]) => name);
+      f.hasCustoms = f.pages.some((p) => p.isCustoms);
+      for (const pg of f.pages) {
+        pg.auto = autoCrop(pg, f);
+        pg.crop = { ...pg.auto.box };
+      }
+      if (f.removed) return;
+      f.status = 'ready';
+      setStatus(f, '');
+      buildCardBody(f);
+      selectPage(f, 0);
+    } catch (e) {
+      setError(f, e);
+    } finally {
+      updateGlobal();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interface : carte par fichier
+  // ---------------------------------------------------------------------------
+  function createFileEntry(file) {
+    const f = {
+      id: state.nextId++, file, name: file.name || 'etiquette.pdf', status: 'pending', pages: [], carriers: [], hasCustoms: false,
+      selected: 0, ui: {}, previewBusy: false, previewPending: false, editorToken: 0,
+    };
+    const title = el('h2', { class: 'card-title', text: f.name });
+    const badges = el('div', { class: 'badges' });
+    const remove = el('button', { class: 'btn ghost small', type: 'button', text: 'Retirer', 'aria-label': `Retirer ${f.name}`, onclick: () => removeFile(f) });
+    const status = el('p', { class: 'status', role: 'status' });
+    const body = el('div', { class: 'card-body' });
+    const card = el('article', { class: 'card', 'data-file-id': String(f.id) }, el('div', { class: 'card-head' }, title, badges, remove), status, body);
+    f.ui = { card, badges, status, body };
+    setStatus(f, 'En attente…', true);
+    return f;
+  }
+
+  function setStatus(f, text, busy) {
+    const s = f.ui.status;
+    s.replaceChildren();
+    if (!text) return;
+    if (busy) s.append(el('span', { class: 'spinner', 'aria-hidden': 'true' }));
+    s.append(text);
+  }
+
+  function setError(f, e) {
+    f.status = 'error';
+    setStatus(f, '');
+    const msg = e instanceof UserError ? e.message : 'Erreur inattendue : ' + (e && e.message ? e.message : e);
+    f.ui.body.replaceChildren(el('div', { class: 'alert error', role: 'alert', text: msg }));
+  }
+
+  function removeFile(f) {
+    f.removed = true;
+    clearTimeout(f.previewTimer);
+    if (f.pdfjs) f.pdfjs.destroy();
+    f.ui.card.remove();
+    state.files = state.files.filter((x) => x !== f);
+    updateGlobal();
+  }
+
+  const cur = (f) => f.pages[f.selected];
+
+  function buildCardBody(f) {
+    const { badges, body } = f.ui;
+    badges.replaceChildren(...[
+      ...f.carriers.map((c) => el('span', { class: 'badge', text: c })),
+      el('span', { class: 'badge', text: `${f.pages.length} page${f.pages.length > 1 ? 's' : ''}` }),
+      f.hasCustoms ? el('span', { class: 'badge douane', text: 'Hors UE' }) : null,
+    ].filter(Boolean));
+
+    const notices = el('div', { class: 'notices' });
+    if (f.hasCustoms) {
+      const btn = el('button', { type: 'button', class: 'btn small', text: 'Ouvrir les papiers de douane (A4)' });
+      btn.addEventListener('click', () => runAction(f, btn, () => openCustoms(f)));
+      notices.append(el('div', { class: 'alert warn', role: 'note' },
+        el('span', { 'aria-hidden': 'true', text: '⚠️' }),
+        el('strong', { text: 'Envoi hors UE : imprime aussi les papiers de douane en A4' }),
+        btn));
+    }
+
+    // Miniatures
+    const thumbs = el('div', { class: 'thumbs' });
+    f.ui.thumbs = [];
+    for (const pg of f.pages) {
+      const mini = el('div', { class: 'mini-crop' });
+      const view = el('button', { type: 'button', class: 'thumb-view', 'aria-label': `Ajuster le cadre de la page ${pg.index + 1}` }, pg.thumb, mini);
+      view.addEventListener('click', () => selectPage(f, pg.index));
+      const cb = el('input', { type: 'checkbox', checked: pg.checked });
+      cb.addEventListener('change', () => { pg.checked = cb.checked; refreshPageState(f); });
+      const tagText = pg.isCustoms ? 'Douane' : pg.index === 0 ? 'Étiquette' : null;
+      const box = el('div', { class: 'thumb' },
+        view,
+        el('div', { class: 'thumb-foot' },
+          el('label', { class: 'thumb-check' }, cb, `Page ${pg.index + 1}`),
+          tagText ? el('span', { class: 'tag' + (pg.isCustoms ? ' douane' : ''), text: tagText }) : null));
+      f.ui.thumbs.push({ box, mini, cb });
+    }
+    thumbs.append(...f.ui.thumbs.map((t) => t.box));
+
+    // Éditeur du cadre
+    const select = el('select', { 'aria-label': 'Zone à découper' },
+      el('option', { value: 'auto', text: 'Détection automatique' }),
+      el('optgroup', { label: 'Préréglages' }, ...PRESETS.map((p) => el('option', { value: p.id, text: p.label }))),
+      el('option', { value: 'page', text: 'Page entière' }),
+      el('option', { value: 'custom', text: 'Personnalisé', disabled: true }));
+    select.addEventListener('change', () => applyChoice(f, select.value));
+    const redetect = el('button', { type: 'button', class: 'btn small', text: 'Détection auto' });
+    redetect.addEventListener('click', () => applyChoice(f, 'auto'));
+
+    const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((h) => el('span', { class: 'h', dataset: { h }, 'aria-hidden': 'true' }));
+    const crop = el('div', { class: 'crop', tabindex: '0', role: 'group', 'aria-label': 'Cadre de découpe (flèches pour déplacer, Maj pour aller plus vite)' }, ...handles);
+    const stageCanvas = el('canvas', { 'aria-hidden': 'true' });
+    const stage = el('div', { class: 'stage' }, stageCanvas, crop);
+    const inputs = {};
+    const mkInput = (k) => (inputs[k] = el('input', { type: 'number', step: 'any', inputmode: 'decimal', 'aria-label': k, dataset: { k } }));
+    const coords = el('div', { class: 'coords' },
+      el('span', { class: 'grp' }, 'x ', mkInput('x0'), ' → ', mkInput('x1')),
+      el('span', { class: 'grp' }, 'y ', mkInput('y0'), ' → ', mkInput('y1')),
+      el('span', { text: 'pt (origine en bas à gauche)' }));
+    for (const inp of Object.values(inputs)) inp.addEventListener('change', () => applyInputs(f));
+    const source = el('p', { class: 'source', role: 'status' });
+    const edTitle = el('span');
+    const editor = el('div', { class: 'panel editor' },
+      el('div', { class: 'panel-head' }, el('h3', {}, 'Cadre de découpe — ', edTitle), el('div', { class: 'tools' }, select, redetect)),
+      stage, coords, source,
+      el('p', { class: 'hint', text: 'Faites glisser le cadre ou ses poignées pour l\'ajuster. À la souris, vous pouvez aussi tracer un nouveau cadre directement sur la page.' }));
+
+    const previewCanvas = el('canvas', { 'aria-label': 'Aperçu de l\'étiquette 4×6', role: 'img' });
+    const previewInfo = el('p', { class: 'preview-info', role: 'status' });
+    const preview = el('div', { class: 'panel preview' },
+      el('h3', { text: 'Aperçu 4×6 (100 × 150 mm)' }),
+      el('div', { class: 'label-frame' }, previewCanvas), previewInfo);
+
+    // Actions
+    const dl = el('button', { type: 'button', class: 'btn primary', text: 'Télécharger' });
+    const pr = el('button', { type: 'button', class: 'btn', text: 'Imprimer' });
+    dl.addEventListener('click', () => runAction(f, dl, () => downloadItems(checkedItems(f), outName(f), `Étiquette ${f.name}`)));
+    pr.addEventListener('click', () => runAction(f, pr, () => printItems(checkedItems(f), `Étiquette ${f.name}`, f.ui.msg)));
+    const out = el('span', { class: 'out' });
+    const msg = el('div', { class: 'alert', hidden: true });
+    const actions = el('div', { class: 'actions' }, dl, pr, out);
+
+    body.replaceChildren(
+      notices,
+      el('h3', { class: 'section-title' }, 'Pages ', el('small', { text: '— cochez les pages à inclure, touchez une miniature pour ajuster son cadre' })),
+      thumbs,
+      el('div', { class: 'workspace' }, editor, preview),
+      actions, msg,
+      el('p', { class: 'print-note', text: '🖨️ Imprimer en 4×6, échelle 100 % (pas "ajuster à la page")' }));
+
+    Object.assign(f.ui, { select, stage, stageCanvas, crop, inputs, source, edTitle, previewCanvas, previewInfo, dl, pr, out, msg });
+    setupStage(f);
+    refreshPageState(f);
+  }
+
+  function refreshPageState(f) {
+    f.pages.forEach((pg, i) => {
+      const t = f.ui.thumbs[i];
+      t.box.classList.toggle('included', pg.checked);
+      t.box.classList.toggle('selected', i === f.selected);
+      t.cb.checked = pg.checked;
+      positionBox(t.mini, pg, userToVis(pg, pg.crop));
+    });
+    const n = f.pages.filter((p) => p.checked).length;
+    f.ui.dl.disabled = f.ui.pr.disabled = n === 0;
+    f.ui.out.textContent = n === 0 ? 'Cochez au moins une page.' : `${n} page${n > 1 ? 's' : ''} → ${outName(f)}`;
+    updatePreviewInfo(f);
+    updateGlobal();
+  }
+
+  function positionBox(node, pg, v) {
+    node.style.left = (v.l / pg.visW * 100) + '%';
+    node.style.top = (v.t / pg.visH * 100) + '%';
+    node.style.width = ((v.r - v.l) / pg.visW * 100) + '%';
+    node.style.height = ((v.b - v.t) / pg.visH * 100) + '%';
+  }
+
+  function selectPage(f, index) {
+    f.selected = index;
+    const pg = cur(f);
+    f.ui.edTitle.textContent = `page ${index + 1}`;
+    const stage = f.ui.stage;
+    stage.style.aspectRatio = `${pg.visW} / ${pg.visH}`;
+    stage.style.maxWidth = `min(100%, calc(68vh * ${(pg.visW / pg.visH).toFixed(4)}))`;
+    // Image provisoire (miniature) puis rendu net.
+    const c = f.ui.stageCanvas;
+    c.width = pg.thumb.width; c.height = pg.thumb.height;
+    c.getContext('2d').drawImage(pg.thumb, 0, 0);
+    refreshCrop(f, { preview: false });
+    refreshPageState(f);
+    renderEditor(f);
+    schedulePreview(f, 0);
+  }
+
+  async function renderEditor(f) {
+    const token = ++f.editorToken;
+    const pg = cur(f);
+    try {
+      const page = await f.pdfjs.getPage(pg.index + 1);
+      const cssW = f.ui.stage.clientWidth || 640;
+      const scale = clamp(cssW * dpr() / pg.visW, 0.5, 3);
+      const { canvas } = await renderPage(page, scale);
+      if (token !== f.editorToken || f.removed) return;
+      const c = f.ui.stageCanvas;
+      c.width = canvas.width; c.height = canvas.height;
+      c.getContext('2d').drawImage(canvas, 0, 0);
+      f.editorWidth = cssW;
+    } catch (e) { /* l'aperçu provisoire reste affiché */ }
+  }
+
+  const SOURCE_TEXT = {
+    rect: ['ok', '✓ Cadre de l\'étiquette détecté automatiquement.'],
+    bbox: ['warn', 'Aucun cadre à trait plein trouvé : zone du contenu de la page. Vérifiez le cadre.'],
+    page: ['warn', 'Détection impossible : page entière. Ajustez le cadre si besoin.'],
+  };
+
+  function refreshCrop(f, { preview = true } = {}) {
+    const pg = cur(f);
+    if (!pg) return;
+    const v = userToVis(pg, pg.crop);
+    positionBox(f.ui.crop, pg, v);
+    positionBox(f.ui.thumbs[pg.index].mini, pg, v);
+    for (const k of ['x0', 'x1', 'y0', 'y1']) {
+      if (document.activeElement !== f.ui.inputs[k]) f.ui.inputs[k].value = round1(pg.crop[k]);
+    }
+    f.ui.select.value = pg.choice;
+    let cls = '', text = '';
+    if (pg.choice === 'auto') {
+      if (pg.auto.source === 'preset') {
+        const p = PRESETS.find((x) => x.id === pg.auto.presetId);
+        cls = 'warn'; text = `Détection incertaine : préréglage « ${p.label} » appliqué. Vérifiez le cadre.`;
+      } else [cls, text] = SOURCE_TEXT[pg.auto.source];
+    } else if (pg.choice === 'page') text = 'Page entière.';
+    else if (pg.choice === 'custom') text = 'Cadre ajusté manuellement.';
+    else text = `Préréglage « ${PRESETS.find((x) => x.id === pg.choice).label} ».`;
+    f.ui.source.className = 'source ' + cls;
+    f.ui.source.textContent = text;
+    if (preview) schedulePreview(f, 140);
+  }
+
+  function applyChoice(f, choice) {
+    const pg = cur(f);
+    if (choice === 'auto') pg.crop = { ...pg.auto.box };
+    else if (choice === 'page') pg.crop = fullPage(pg);
+    else {
+      const p = PRESETS.find((x) => x.id === choice);
+      if (!p) return;
+      pg.crop = clampUser(pg, visToUser(pg, clampVis(pg, presetToVis(pg, p.box))));
+    }
+    pg.choice = choice;
+    refreshCrop(f);
+    schedulePreview(f, 0);
+  }
+
+  function applyInputs(f) {
+    const pg = cur(f);
+    const v = {};
+    for (const k of ['x0', 'x1', 'y0', 'y1']) v[k] = parseFloat(String(f.ui.inputs[k].value).replace(',', '.'));
+    const u = clampUser(pg, { x0: Math.min(v.x0, v.x1), x1: Math.max(v.x0, v.x1), y0: Math.min(v.y0, v.y1), y1: Math.max(v.y0, v.y1) });
+    if (Object.values(v).some((n) => !Number.isFinite(n)) || u.x1 - u.x0 < CADRE_MIN || u.y1 - u.y0 < CADRE_MIN) {
+      for (const k of ['x0', 'x1', 'y0', 'y1']) f.ui.inputs[k].value = round1(pg.crop[k]);
+      return;
+    }
+    pg.crop = u;
+    pg.choice = 'custom';
+    refreshCrop(f);
+  }
+
+  // Glisser-déposer du cadre (souris + tactile via Pointer Events).
+  function setupStage(f) {
+    const stage = f.ui.stage;
+    const point = (e) => {
+      const r = stage.getBoundingClientRect(), pg = cur(f);
+      return { x: clamp((e.clientX - r.left) / r.width * pg.visW, 0, pg.visW), y: clamp((e.clientY - r.top) / r.height * pg.visH, 0, pg.visH) };
+    };
+    stage.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const handle = e.target.closest('[data-h]');
+      const mode = handle ? handle.dataset.h : e.target.closest('.crop') ? 'move' : e.pointerType === 'mouse' ? 'new' : null;
+      if (!mode) return;          // au doigt, toucher la page hors du cadre laisse défiler
+      e.preventDefault();
+      stage.setPointerCapture(e.pointerId);
+      const pg = cur(f), p = point(e);
+      f.drag = { id: e.pointerId, mode, p0: p, box0: userToVis(pg, pg.crop), prevCrop: { ...pg.crop }, prevChoice: pg.choice };
+      stage.classList.add('dragging');
+      if (mode !== 'new') f.ui.crop.focus({ preventScroll: true });
+    });
+    stage.addEventListener('pointermove', (e) => {
+      const d = f.drag;
+      if (!d || e.pointerId !== d.id) return;
+      e.preventDefault();
+      const pg = cur(f), p = point(e), W = pg.visW, H = pg.visH, M = CADRE_MIN, b0 = d.box0;
+      const dx = p.x - d.p0.x, dy = p.y - d.p0.y;
+      let { l, t, r, b } = b0;
+      if (d.mode === 'move') {
+        const mx = clamp(dx, -b0.l, W - b0.r), my = clamp(dy, -b0.t, H - b0.b);
+        l += mx; r += mx; t += my; b += my;
+      } else if (d.mode === 'new') {
+        l = Math.min(d.p0.x, p.x); r = Math.max(d.p0.x, p.x); t = Math.min(d.p0.y, p.y); b = Math.max(d.p0.y, p.y);
+        if (r - l < M || b - t < M) return;
+      } else {
+        if (d.mode.includes('w')) l = clamp(b0.l + dx, 0, b0.r - M);
+        if (d.mode.includes('e')) r = clamp(b0.r + dx, b0.l + M, W);
+        if (d.mode.includes('n')) t = clamp(b0.t + dy, 0, b0.b - M);
+        if (d.mode.includes('s')) b = clamp(b0.b + dy, b0.t + M, H);
+      }
+      pg.crop = clampUser(pg, visToUser(pg, { l, t, r, b }));
+      pg.choice = 'custom';
+      refreshCrop(f);
+    });
+    const end = (e) => {
+      const d = f.drag;
+      if (!d || e.pointerId !== d.id) return;
+      f.drag = null;
+      stage.classList.remove('dragging');
+      schedulePreview(f, 0);
+    };
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+    f.ui.crop.addEventListener('keydown', (e) => {
+      const step = e.shiftKey ? 10 : 1;
+      const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (!delta) return;
+      e.preventDefault();
+      const pg = cur(f), v = userToVis(pg, pg.crop);
+      const mx = clamp(delta[0], -v.l, pg.visW - v.r), my = clamp(delta[1], -v.t, pg.visH - v.b);
+      pg.crop = clampUser(pg, visToUser(pg, { l: v.l + mx, r: v.r + mx, t: v.t + my, b: v.b + my }));
+      pg.choice = 'custom';
+      refreshCrop(f);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Aperçu : rendu (pdf.js) du vrai PDF 4×6 généré pour la page sélectionnée
+  // ---------------------------------------------------------------------------
+  function schedulePreview(f, delay) {
+    clearTimeout(f.previewTimer);
+    f.previewTimer = setTimeout(() => renderPreview(f), delay);
+  }
+
+  async function renderPreview(f) {
+    if (f.removed || f.status !== 'ready') return;
+    if (f.previewBusy) { f.previewPending = true; return; }
+    f.previewBusy = true;
+    try {
+      do {
+        f.previewPending = false;
+        await renderPreviewOnce(f);
+      } while (f.previewPending && !f.removed);
+    } finally {
+      f.previewBusy = false;
+    }
+  }
+
+  async function renderPreviewOnce(f) {
+    const pg = cur(f);
+    let doc = null;
+    try {
+      const bytes = await buildPdf([{ file: f, page: pg }], 'Aperçu');
+      doc = await pdfjsLib.getDocument(docParams(bytes)).promise;
+      const page = await doc.getPage(1);
+      const cssW = f.ui.previewCanvas.clientWidth || 268;
+      const scale = clamp(cssW * dpr() / OUT_W, 0.5, 4);
+      const { canvas } = await renderPage(page, scale);
+      const c = f.ui.previewCanvas;
+      c.width = canvas.width; c.height = canvas.height;
+      c.getContext('2d').drawImage(canvas, 0, 0);
+      f.ui.previewCanvas.dataset.page = String(pg.index);
+      f.previewError = null;
+    } catch (e) {
+      f.previewError = 'Aperçu impossible : ' + (e && e.message ? e.message : e);
+    } finally {
+      if (doc) doc.destroy();
+    }
+    updatePreviewInfo(f);
+  }
+
+  function updatePreviewInfo(f) {
+    const pg = cur(f), info = f.ui.previewInfo;
+    if (!pg || !info) return;
+    if (f.previewError) { info.className = 'preview-info excluded'; info.textContent = f.previewError; return; }
+    const L = layoutFor(pg.crop, pg.rotate);
+    const rot = L.T === 0 ? 'sans rotation' : `rotation ${L.T}° (sens horaire)`;
+    const parts = [`Page ${pg.index + 1} · ${rot} · échelle ${Math.round(L.s * 100)} %`];
+    if (!pg.checked) parts.push('Page non cochée : elle ne sera pas dans le PDF.');
+    info.className = 'preview-info' + (pg.checked ? '' : ' excluded');
+    info.textContent = parts.join(' — ');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Actions : télécharger / imprimer
+  // ---------------------------------------------------------------------------
+  async function runAction(f, btn, fn, msgBox) {
+    const box = msgBox || (f && f.ui.msg);
+    if (box) box.hidden = true;
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    try {
+      await fn();
+    } catch (e) {
+      if (box) {
+        box.className = 'alert error';
+        box.textContent = e instanceof UserError ? e.message : 'La génération du PDF a échoué : ' + (e && e.message ? e.message : e);
+        box.hidden = false;
+      }
+    } finally {
+      btn.textContent = label;
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      if (f) refreshPageState(f); else updateGlobal();
+    }
+  }
+
+  function blobUrl(bytes) {
+    return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  }
+
+  async function downloadItems(items, filename, title) {
+    if (!items.length) throw new UserError('Cochez au moins une page.');
+    const url = blobUrl(await buildPdf(items, title));
+    const a = el('a', { href: url, download: filename, hidden: true });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  /** Ouvre un PDF dans un nouvel onglet. L'onglet est ouvert tout de suite (clic) pour éviter le blocage des pop-ups. */
+  async function openInNewTab(makeBytes, msgBox) {
+    const win = window.open('', '_blank');
+    if (win) {
+      try {
+        win.document.title = 'Préparation du PDF…';
+        win.document.body.style.font = '16px system-ui, sans-serif';
+        win.document.body.textContent = 'Préparation du PDF…';
+      } catch (e) { /* ignore */ }
+    }
+    let bytes;
+    try {
+      bytes = await makeBytes();
+    } catch (e) {
+      if (win) win.close();
+      throw e;
+    }
+    const url = blobUrl(bytes);
+    setTimeout(() => URL.revokeObjectURL(url), 15 * 60000);
+    if (win && !win.closed) {
+      win.location.replace(url);
+    } else if (msgBox) {
+      msgBox.className = 'alert info';
+      msgBox.replaceChildren('Le navigateur a bloqué le nouvel onglet. ',
+        el('a', { href: url, target: '_blank', rel: 'noopener', class: 'open-link', text: 'Ouvrir le PDF' }));
+      msgBox.hidden = false;
+    }
+  }
+
+  function printItems(items, title, msgBox) {
+    if (!items.length) throw new UserError('Cochez au moins une page.');
+    return openInNewTab(() => buildPdf(items, title), msgBox);
+  }
+
+  function openCustoms(f) {
+    return openInNewTab(async () => {
+      const { PDFDocument } = PDFLib;
+      const out = await PDFDocument.create();
+      const idx = f.pages.filter((p) => p.isCustoms).map((p) => p.index);
+      for (const p of await out.copyPages(f.libDoc, idx)) out.addPage(p);
+      out.setTitle(`Douane ${f.name}`);
+      return out.save();
+    }, f.ui.msg);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Barre globale (plusieurs fichiers)
+  // ---------------------------------------------------------------------------
+  const allItems = () => state.files.flatMap(checkedItems);
+  function updateGlobal() {
+    ui.global.hidden = state.files.length < 2;
+    const n = allItems().length;
+    const ready = state.files.filter((f) => f.status === 'ready').length;
+    ui.allCount.textContent = `${n} étiquette${n > 1 ? 's' : ''} cochée${n > 1 ? 's' : ''} · ${ready} fichier${ready > 1 ? 's' : ''}`;
+    if (!ui.allDl.hasAttribute('aria-busy')) ui.allDl.disabled = n === 0;
+    if (!ui.allPrint.hasAttribute('aria-busy')) ui.allPrint.disabled = n === 0;
+  }
+  const allName = () => `etiquettes_${state.files.filter((f) => f.status === 'ready').length}-fichiers_MUNBYN_4x6.pdf`;
+  ui.allDl.addEventListener('click', () => runAction(null, ui.allDl, () => downloadItems(allItems(), allName(), 'Étiquettes MUNBYN 4×6'), ui.globalMsg));
+  ui.allPrint.addEventListener('click', () => runAction(null, ui.allPrint, () => printItems(allItems(), 'Étiquettes MUNBYN 4×6', ui.globalMsg), ui.globalMsg));
+  ui.allClear.addEventListener('click', () => { for (const f of [...state.files]) removeFile(f); ui.globalMsg.hidden = true; });
+
+  // ---------------------------------------------------------------------------
+  // Dépôt de fichiers
+  // ---------------------------------------------------------------------------
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  ui.pick.addEventListener('click', (e) => { e.stopPropagation(); ui.input.click(); });
+  ui.dropzone.addEventListener('click', () => ui.input.click());
+  ui.dropzone.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target === ui.dropzone) { e.preventDefault(); ui.input.click(); }
+  });
+  ui.input.addEventListener('change', () => { addFiles(ui.input.files); ui.input.value = ''; });
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => { if (hasFiles(e)) { e.preventDefault(); dragDepth++; ui.dropzone.classList.add('over'); } });
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  window.addEventListener('dragleave', (e) => { if (hasFiles(e) && --dragDepth <= 0) { dragDepth = 0; ui.dropzone.classList.remove('over'); } });
+  window.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    ui.dropzone.classList.remove('over');
+    addFiles(e.dataTransfer.files);
+  });
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      for (const f of state.files) {
+        if (f.status !== 'ready') continue;
+        const w = f.ui.stage.clientWidth;
+        if (w && Math.abs(w - (f.editorWidth || 0)) > 40) renderEditor(f);
+        schedulePreview(f, 0);
+      }
+    }, 250);
+  });
+
+  // Accès pour les tests automatisés et le débogage (aucune donnée n'est exposée hors de la page).
+  window.MunbynApp = {
+    state, PRESETS, layoutFor, detectZone, addFiles, buildPdf, libsReady,
+    visualBox(fi, pi) {
+      const pg = state.files[fi].pages[pi], v = userToVis(pg, pg.crop);
+      return [v.l, pg.visH - v.b, v.r, pg.visH - v.t];
+    },
+  };
+})();
+</script>
+</body>
+</html>

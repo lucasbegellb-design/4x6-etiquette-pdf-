@@ -1,0 +1,4 @@
+tests/pdf/
+tests/sortie/
+node_modules/
+__pycache__/
